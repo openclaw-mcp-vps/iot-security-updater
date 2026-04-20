@@ -1,0 +1,2 @@
+// Prisma is intentionally not used in this project.
+// Persistence is implemented with JSON files under /data to avoid ORM build/codegen issues.

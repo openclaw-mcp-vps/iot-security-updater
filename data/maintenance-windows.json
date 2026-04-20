@@ -1,0 +1,16 @@
+[
+  {
+    "id": "weekday-night",
+    "name": "Weekday Night Window",
+    "cron": "0 2 * * 1-5",
+    "timezone": "Etc/UTC",
+    "maxConcurrent": 25
+  },
+  {
+    "id": "sunday-maintenance",
+    "name": "Sunday Maintenance",
+    "cron": "0 3 * * 0",
+    "timezone": "Etc/UTC",
+    "maxConcurrent": 60
+  }
+]

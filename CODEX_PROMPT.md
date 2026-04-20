@@ -4,32 +4,34 @@ Build a complete, production-ready Next.js 15 App Router application.
 
 PROJECT: iot-security-updater
 HEADLINE: Automated IoT device security patch management
-WHAT: None
-WHY: None
-WHO PAYS: None
+WHAT: Automatically discovers IoT devices on your network, tracks available security patches, and orchestrates updates across manufacturers. Handles the complexity of different update mechanisms and schedules patches during maintenance windows.
+WHY: IoT devices are the weakest link in enterprise security but manually tracking patches across hundreds of devices from dozens of vendors is impossible. Recent breaches show unpatched IoT devices as primary attack vectors.
+WHO PAYS: IT security managers at mid-market companies (100-1000 employees) with mixed IoT deployments. They have budget for security tools but lack dedicated IoT specialists to manually manage device updates.
 NICHE: security-tools
 PRICE: $$12/mo
 
 ARCHITECTURE SPEC:
-A Next.js web application that discovers IoT devices on networks, tracks their firmware versions against vulnerability databases, and provides automated patch deployment workflows. The system uses a dashboard interface for device management and integrates with device APIs for secure update delivery.
+A Next.js web application with a dashboard for managing IoT device discovery and patch orchestration. The backend uses network scanning APIs and manufacturer update services, with a job queue system for scheduling patches during maintenance windows.
 
 PLANNED FILES:
 - app/dashboard/page.tsx
 - app/devices/page.tsx
-- app/vulnerabilities/page.tsx
-- app/api/scan/route.ts
-- app/api/devices/route.ts
-- app/api/patches/route.ts
+- app/patches/page.tsx
+- app/settings/page.tsx
+- app/api/devices/scan/route.ts
+- app/api/patches/check/route.ts
+- app/api/patches/schedule/route.ts
 - app/api/webhooks/lemonsqueezy/route.ts
-- components/DeviceScanner.tsx
-- components/VulnerabilityAlert.tsx
-- components/PatchScheduler.tsx
-- lib/device-discovery.ts
-- lib/vulnerability-db.ts
+- lib/device-scanner.ts
 - lib/patch-manager.ts
-- lib/lemonsqueezy.ts
+- lib/manufacturer-apis.ts
+- lib/scheduler.ts
+- components/device-list.tsx
+- components/patch-status.tsx
+- components/maintenance-window.tsx
+- prisma/schema.prisma
 
-DEPENDENCIES: next, tailwindcss, prisma, @prisma/client, node-nmap, axios, @lemonsqueezy/lemonsqueezy.js, zod, lucide-react, recharts, cron, ssh2
+DEPENDENCIES: next, tailwindcss, prisma, @prisma/client, node-nmap, node-cron, bull, redis, @lemonsqueezy/lemonsqueezy.js, recharts, lucide-react, zod, react-hook-form, @hookform/resolvers
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)
@@ -69,8 +71,3 @@ After creating all files:
 
 Do NOT use placeholder text. Write real, helpful content for the landing page
 and the tool itself. The tool should actually work and provide value.
-
-
-PREVIOUS ATTEMPT FAILED WITH:
-Codex timed out after 600s
-Please fix the above errors and regenerate.

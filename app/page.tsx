@@ -1,228 +1,133 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowRight, CheckCircle2, ShieldAlert, TimerReset, Wifi } from "lucide-react";
-
-const faq = [
-  {
-    question: "How quickly can we detect exposed firmware?",
-    answer:
-      "Network scans and version checks run on demand and can be scheduled every hour, so newly exposed firmware is surfaced quickly with severity context."
-  },
-  {
-    question: "Do patches deploy all at once?",
-    answer:
-      "No. You can schedule phased deployment windows, starting with a pilot group, and track completion before wider rollout."
-  },
-  {
-    question: "What do we need to connect devices?",
-    answer:
-      "API credentials or SSH access for your device fleet. The platform stores only the minimum connection metadata required for patch orchestration."
-  }
-];
+import Link from "next/link";
+import { AlertOctagon, CalendarClock, Radar, ShieldAlert, ShieldCheck } from "lucide-react";
+import { CheckoutOverlayButton } from "@/components/checkout-overlay-button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 
 export default function LandingPage() {
-  const router = useRouter();
-  const [sessionId, setSessionId] = useState("");
-  const [unlockMessage, setUnlockMessage] = useState("");
-  const [showPaywallNotice, setShowPaywallNotice] = useState(false);
-
-  useEffect(() => {
-    const query = new URLSearchParams(window.location.search);
-    setShowPaywallNotice(query.get("paywall") === "1");
-
-    const existing = window.localStorage.getItem("iot-session-id");
-    if (existing) {
-      setSessionId(existing);
-      return;
-    }
-
-    const created = crypto.randomUUID();
-    window.localStorage.setItem("iot-session-id", created);
-    document.cookie = `iot_session_id=${created}; path=/; max-age=2592000; samesite=lax`;
-    setSessionId(created);
-  }, []);
-
-  const checkoutUrl = useMemo(() => {
-    const productId = process.env.NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID;
-    const storeId = process.env.NEXT_PUBLIC_LEMON_SQUEEZY_STORE_ID;
-    if (!productId || !storeId) return "";
-
-    const base = `https://app.lemonsqueezy.com/checkout/buy/${productId}`;
-    const params = new URLSearchParams({
-      checkout: "1",
-      embed: "1",
-      media: "0",
-      logo: "0",
-      discount: "0",
-      "checkout[custom][session_id]": sessionId,
-      "checkout[custom][store_id]": storeId
-    });
-
-    return `${base}?${params.toString()}`;
-  }, [sessionId]);
-
-  async function verifyPurchase() {
-    if (!sessionId) {
-      setUnlockMessage("Session not initialized. Refresh and try again.");
-      return;
-    }
-
-    const response = await fetch("/api/paywall", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId })
-    });
-
-    if (!response.ok) {
-      setUnlockMessage("No completed purchase found for this session yet.");
-      return;
-    }
-
-    router.push("/dashboard");
-  }
-
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 pb-20 pt-10 md:px-10">
-      <nav className="mb-14 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)]/75 px-5 py-3 backdrop-blur">
-        <div className="text-lg font-semibold tracking-tight">IoT Security Updater</div>
-        <a
-          href="#pricing"
-          className="rounded-md border border-[var(--border)] px-4 py-2 text-sm text-[var(--muted)] transition hover:border-[var(--primary)] hover:text-[var(--text)]"
-        >
-          Pricing
-        </a>
-      </nav>
-
-      <section className="grid gap-8 md:grid-cols-2 md:items-center">
-        <div>
-          <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-            <ShieldAlert size={14} />
-            security-tools
+    <div>
+      <section className="mx-auto grid max-w-6xl gap-8 px-4 pb-14 pt-16 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
+        <div className="space-y-6">
+          <p className="inline-flex items-center gap-2 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-3 py-1 text-xs tracking-wide text-cyan-200">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            Automated IoT Device Security Patch Management
           </p>
-          <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
-            Automated IoT device security patch management
+
+          <h1 className="text-4xl font-semibold leading-tight text-slate-100 md:text-5xl">
+            Stop Unpatched IoT Devices from Becoming Your Next Breach Entry Point
           </h1>
-          <p className="mt-4 text-base leading-7 text-[var(--muted)]">
-            Discover unmanaged IoT assets, correlate firmware versions against known vulnerabilities, and deploy patches in controlled windows before exposure turns into incidents.
+
+          <p className="max-w-2xl text-lg text-slate-300">
+            PatchPilot continuously discovers IoT devices, tracks vendor-specific security advisories, and schedules firmware
+            updates during your maintenance windows so your team can close exposure without manual spreadsheet triage.
           </p>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
-            <a
-              href={checkoutUrl || "#pricing"}
-              className="lemonsqueezy-button inline-flex items-center gap-2 rounded-md bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-black transition hover:brightness-110"
-            >
-              Start Protecting Devices
-              <ArrowRight size={16} />
-            </a>
-            <a
-              href="/dashboard"
-              className="rounded-md border border-[var(--border)] px-5 py-3 text-sm text-[var(--muted)] transition hover:text-[var(--text)]"
-            >
-              Preview Dashboard
-            </a>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <CheckoutOverlayButton />
+            <Link className="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-cyan-400" href="/unlock">
+              Already Purchased? Unlock Access
+            </Link>
           </div>
+
+          <p className="text-sm text-slate-400">
+            Built for IT security managers at mid-market companies running mixed camera, badge, controller, and OT device fleets.
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[0_0_80px_rgba(47,191,113,0.08)]">
-          <div className="mb-4 text-sm font-medium text-[var(--muted)]">Live Risk Snapshot</div>
-          <div className="space-y-3 text-sm">
-            <div className="flex items-center justify-between rounded-lg bg-[var(--surface-2)] px-3 py-2">
-              <span>Devices discovered</span>
-              <span className="font-semibold">184</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-[var(--surface-2)] px-3 py-2">
-              <span>High/Critical firmware risks</span>
-              <span className="font-semibold text-[var(--danger)]">27</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-[var(--surface-2)] px-3 py-2">
-              <span>Patch jobs in progress</span>
-              <span className="font-semibold text-[var(--warning)]">9</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {showPaywallNotice ? (
-        <section className="mt-8 rounded-xl border border-[var(--warning)] bg-[var(--surface)] p-5">
-          <h2 className="text-lg font-semibold">Dashboard access requires an active subscription</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Complete checkout, then click verify to activate your secure session cookie.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <a
-              href={checkoutUrl || "#pricing"}
-              className="lemonsqueezy-button rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-black"
-            >
-              Open Checkout
-            </a>
-            <button
-              className="rounded-md border border-[var(--border)] px-4 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
-              onClick={verifyPurchase}
-            >
-              Verify Purchase
-            </button>
-          </div>
-          {unlockMessage ? <p className="mt-2 text-sm text-[var(--warning)]">{unlockMessage}</p> : null}
-        </section>
-      ) : null}
-
-      <section className="mt-20 grid gap-4 md:grid-cols-3">
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-          <Wifi className="mb-3" size={20} />
-          <h2 className="text-lg font-semibold">The Problem</h2>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            IoT fleets expand faster than patch cycles. Unknown devices and outdated firmware create blind spots that attackers exploit first.
-          </p>
-        </article>
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-          <TimerReset className="mb-3" size={20} />
-          <h2 className="text-lg font-semibold">The Solution</h2>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            Continuous discovery and vulnerability mapping highlight what needs action now, with scheduled deployment windows to reduce operational risk.
-          </p>
-        </article>
-        <article className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-          <CheckCircle2 className="mb-3" size={20} />
-          <h2 className="text-lg font-semibold">The Outcome</h2>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            Security and operations teams share one execution workflow for remediation, with visible status and audit-friendly patch history.
-          </p>
-        </article>
-      </section>
-
-      <section id="pricing" className="mt-20 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8">
-        <h2 className="text-2xl font-semibold">Pricing</h2>
-        <p className="mt-2 text-sm text-[var(--muted)]">One plan for small teams running IoT infrastructure in production.</p>
-        <div className="mt-6 inline-flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-6">
-          <div className="text-sm uppercase tracking-[0.12em] text-[var(--muted)]">Starter Security</div>
-          <div className="mt-1 text-4xl font-semibold">$12<span className="text-base font-medium text-[var(--muted)]">/mo</span></div>
-          <ul className="mt-4 space-y-2 text-sm text-[var(--muted)]">
-            <li>Up to 500 devices scanned monthly</li>
-            <li>Firmware vulnerability matching</li>
-            <li>Patch scheduling and deployment queue</li>
-            <li>Lemon Squeezy managed billing</li>
+        <Card className="border-cyan-500/20 bg-gradient-to-b from-slate-900/90 to-slate-950/70">
+          <CardTitle className="mb-2">What You Get in Week 1</CardTitle>
+          <CardDescription>Immediate visibility and patch execution without hiring an IoT specialist.</CardDescription>
+          <ul className="mt-4 space-y-3 text-sm text-slate-200">
+            <li className="flex items-start gap-2">
+              <Radar className="mt-0.5 h-4 w-4 text-cyan-300" />
+              Continuous discovery to surface unmanaged endpoints on production subnets.
+            </li>
+            <li className="flex items-start gap-2">
+              <ShieldCheck className="mt-0.5 h-4 w-4 text-cyan-300" />
+              Vendor-aware patch intelligence with CVE severity scoring and reboot requirements.
+            </li>
+            <li className="flex items-start gap-2">
+              <CalendarClock className="mt-0.5 h-4 w-4 text-cyan-300" />
+              One-click scheduling across maintenance windows to minimize operational risk.
+            </li>
           </ul>
-          <a
-            href={checkoutUrl || "#"}
-            className="lemonsqueezy-button mt-6 inline-flex justify-center rounded-md bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-black"
-          >
-            Checkout Securely
-          </a>
+        </Card>
+      </section>
+
+      <section className="border-y border-slate-800 bg-slate-950/30">
+        <div className="mx-auto grid max-w-6xl gap-5 px-4 py-12 md:grid-cols-3">
+          <Card>
+            <CardTitle className="mb-2 text-lg">Problem</CardTitle>
+            <p className="text-sm text-slate-300">
+              IoT fleets grow faster than patch workflows. Security teams inherit dozens of vendor portals, weak asset inventory, and no
+              coordinated rollout process.
+            </p>
+          </Card>
+          <Card>
+            <CardTitle className="mb-2 text-lg">Consequence</CardTitle>
+            <p className="text-sm text-slate-300">
+              Critical vulnerabilities stay open for weeks. Breach investigations repeatedly trace lateral movement to neglected IoT endpoints.
+            </p>
+          </Card>
+          <Card>
+            <CardTitle className="mb-2 text-lg">Solution</CardTitle>
+            <p className="text-sm text-slate-300">
+              PatchPilot automates discovery, vulnerability prioritization, and scheduled patch orchestration so your small team can keep up.
+            </p>
+          </Card>
         </div>
       </section>
 
-      <section className="mt-20">
-        <h2 className="text-2xl font-semibold">FAQ</h2>
-        <div className="mt-6 space-y-3">
-          {faq.map((item) => (
-            <article key={item.question} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-              <h3 className="text-base font-medium">{item.question}</h3>
-              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.answer}</p>
-            </article>
-          ))}
+      <section className="mx-auto max-w-6xl px-4 py-14">
+        <h2 className="text-2xl font-semibold text-slate-100">Pricing</h2>
+        <p className="mt-2 max-w-3xl text-slate-300">
+          Predictable pricing for teams that need enterprise-grade coverage without enterprise procurement overhead.
+        </p>
+
+        <div className="mt-6 grid gap-5 md:grid-cols-[1.1fr_0.9fr]">
+          <Card className="border-cyan-400/30 bg-cyan-500/5">
+            <CardTitle className="text-xl">Security Tools Plan</CardTitle>
+            <p className="mt-3 text-4xl font-semibold text-cyan-200">
+              $12<span className="text-base text-slate-300">/month</span>
+            </p>
+            <ul className="mt-4 space-y-2 text-sm text-slate-200">
+              <li>Unlimited device scans across internal subnets</li>
+              <li>Patch feed monitoring across mixed manufacturers</li>
+              <li>Maintenance-window scheduling and queue management</li>
+              <li>Webhook-driven purchase activation and paywall access</li>
+            </ul>
+            <CheckoutOverlayButton className="mt-6 w-full" />
+          </Card>
+
+          <Card>
+            <CardTitle className="text-lg">FAQ</CardTitle>
+            <div className="mt-4 space-y-4 text-sm text-slate-300">
+              <div>
+                <p className="font-medium text-slate-100">How quickly can we start using it?</p>
+                <p>Most teams import their first network range and queue critical patches in under 30 minutes.</p>
+              </div>
+              <div>
+                <p className="font-medium text-slate-100">Does this replace our existing security stack?</p>
+                <p>No. PatchPilot complements SIEM and EDR tools by fixing the IoT patching blind spot they usually expose.</p>
+              </div>
+              <div>
+                <p className="font-medium text-slate-100">How does access work after purchase?</p>
+                <p>Payment events activate your account via webhook, then you unlock the dashboard with your billing email.</p>
+              </div>
+            </div>
+          </Card>
         </div>
       </section>
-    </main>
+
+      <section className="border-t border-slate-800">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-8">
+          <p className="text-sm text-slate-400">Protect your weakest attack surface before attackers automate against it.</p>
+          <Link className="inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200" href="/dashboard">
+            <AlertOctagon className="h-4 w-4" />
+            Open Security Dashboard
+          </Link>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -1,10 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["ssh2", "node-nmap"],
-  experimental: {
-    typedRoutes: true
-  }
+  reactStrictMode: true
 };
 
 export default nextConfig;
