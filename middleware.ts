@@ -1,39 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ACCESS_COOKIE } from "@/lib/constants";
 
-const protectedPagePrefixes = ["/dashboard", "/devices", "/patches", "/settings"];
-const protectedApiPrefixes = ["/api/devices", "/api/patches"];
-
-function pathStartsWith(pathname: string, prefixes: string[]): boolean {
-  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
+const ACCESS_COOKIE_NAME = "iotsec_access";
 
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const hasAccess = request.cookies.get(ACCESS_COOKIE)?.value === "granted";
-
-  const isProtectedPage = pathStartsWith(pathname, protectedPagePrefixes);
-  const isProtectedApi = pathStartsWith(pathname, protectedApiPrefixes);
-
-  if (!hasAccess && isProtectedApi) {
-    return NextResponse.json(
-      {
-        error: "Paid access required. Complete checkout and unlock from /unlock first."
-      },
-      { status: 402 }
-    );
+  const token = request.cookies.get(ACCESS_COOKIE_NAME)?.value;
+  if (token) {
+    return NextResponse.next();
   }
 
-  if (!hasAccess && isProtectedPage) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/unlock";
-    url.searchParams.set("from", pathname);
-    return NextResponse.redirect(url);
-  }
-
-  return NextResponse.next();
+  const url = request.nextUrl.clone();
+  url.pathname = "/access";
+  url.searchParams.set("next", request.nextUrl.pathname);
+  return NextResponse.redirect(url);
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/devices/:path*", "/patches/:path*", "/settings/:path*", "/api/devices/:path*", "/api/patches/:path*"]
+  matcher: ["/dashboard/:path*", "/devices/:path*", "/patches/:path*", "/schedules/:path*"]
 };

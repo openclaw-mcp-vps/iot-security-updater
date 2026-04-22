@@ -1,17 +1,21 @@
-import { DeviceList } from "@/components/device-list";
-import { ProtectedPageHeader } from "@/components/protected-page-header";
-import { getDevices } from "@/lib/storage";
+import { ConsoleHeader } from "@/components/console-header";
+import { DeviceDiscoveryPanel } from "@/components/device-discovery-panel";
+import { getStoredDevices } from "@/lib/device-scanner";
+
+export const dynamic = "force-dynamic";
 
 export default async function DevicesPage() {
-  const devices = await getDevices();
+  const devices = await getStoredDevices();
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <ProtectedPageHeader
-        title="Device Discovery"
-        description="Identify unmanaged endpoints and maintain an accurate, security-relevant inventory across camera, network, and operational devices."
+    <main className="min-h-screen pb-14">
+      <ConsoleHeader
+        title="Device Inventory"
+        description="Continuously discovered IoT endpoints across network zones with risk posture metadata."
       />
-      <DeviceList devices={devices} />
-    </div>
+      <section className="mx-auto w-full max-w-6xl px-6 py-8">
+        <DeviceDiscoveryPanel initialDevices={devices} />
+      </section>
+    </main>
   );
 }

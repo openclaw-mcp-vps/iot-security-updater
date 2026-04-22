@@ -1,64 +1,90 @@
-import { NextResponse } from "next/server";
-import { markPurchaseActive, webhookSignatureMatches } from "@/lib/paywall";
+import { createHmac, timingSafeEqual } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { normalizeEmail } from "@/lib/auth";
+import { readDataFile, writeDataFile } from "@/lib/storage";
+import type { PurchaseRecord } from "@/lib/types";
 
-function extractCustomerEmail(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") {
+function verifyStripeSignature(payload: string, signatureHeader: string, secret: string): boolean {
+  const pieces = signatureHeader.split(",").map((part) => part.trim());
+  const timestampPart = pieces.find((part) => part.startsWith("t="));
+  const signatures = pieces.filter((part) => part.startsWith("v1=")).map((part) => part.replace("v1=", ""));
+
+  if (!timestampPart || signatures.length === 0) {
+    return false;
+  }
+
+  const timestamp = timestampPart.replace("t=", "");
+  const signedPayload = `${timestamp}.${payload}`;
+  const expected = createHmac("sha256", secret).update(signedPayload).digest("hex");
+
+  return signatures.some((candidate) => {
+    try {
+      const expectedBuffer = Buffer.from(expected, "hex");
+      const candidateBuffer = Buffer.from(candidate, "hex");
+      if (expectedBuffer.length !== candidateBuffer.length) {
+        return false;
+      }
+      return timingSafeEqual(expectedBuffer, candidateBuffer);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function extractEmailFromCheckoutEvent(eventData: unknown): string | null {
+  if (!eventData || typeof eventData !== "object") {
     return null;
   }
 
-  const data = (payload as { data?: { attributes?: Record<string, unknown> } }).data;
-  const attributes = data?.attributes;
-  if (!attributes) {
-    return null;
-  }
+  const object = eventData as {
+    customer_email?: string;
+    customer_details?: { email?: string };
+  };
 
-  const email = attributes.user_email ?? attributes.email ?? attributes.customer_email;
-  return typeof email === "string" ? email : null;
+  const email = object.customer_email || object.customer_details?.email;
+  return email ? normalizeEmail(email) : null;
 }
 
-function extractOrderId(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== "object") {
-    return undefined;
-  }
+export const runtime = "nodejs";
 
-  const data = (payload as { data?: { id?: string } }).data;
-  return data?.id;
-}
+export async function POST(request: NextRequest) {
+  const payload = await request.text();
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const signature = request.headers.get("stripe-signature");
 
-const activatingEvents = new Set(["order_created", "subscription_created", "subscription_payment_success"]);
-
-export async function POST(request: Request) {
-  const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET;
   if (!secret) {
-    return NextResponse.json({ error: "LEMON_SQUEEZY_WEBHOOK_SECRET is not configured." }, { status: 500 });
+    return NextResponse.json({ error: "STRIPE_WEBHOOK_SECRET is missing." }, { status: 500 });
   }
 
-  const rawBody = await request.text();
-  const signature = request.headers.get("x-signature") ?? request.headers.get("X-Signature");
-
-  if (!webhookSignatureMatches(rawBody, signature, secret)) {
-    return NextResponse.json({ error: "Invalid webhook signature." }, { status: 401 });
+  if (!signature || !verifyStripeSignature(payload, signature, secret)) {
+    return NextResponse.json({ error: "Invalid webhook signature." }, { status: 400 });
   }
 
-  const eventName = request.headers.get("x-event-name") ?? request.headers.get("X-Event-Name") ?? "unknown";
-
-  let payload: unknown;
+  let event: { type?: string; data?: { object?: unknown }; id?: string };
   try {
-    payload = JSON.parse(rawBody) as unknown;
+    event = JSON.parse(payload) as { type?: string; data?: { object?: unknown }; id?: string };
   } catch {
     return NextResponse.json({ error: "Invalid webhook payload." }, { status: 400 });
   }
 
-  if (!activatingEvents.has(eventName)) {
-    return NextResponse.json({ received: true, ignored: true, eventName });
+  if (event.type === "checkout.session.completed") {
+    const email = extractEmailFromCheckoutEvent(event.data?.object);
+
+    if (email) {
+      const purchases = await readDataFile<PurchaseRecord[]>("purchases.json", []);
+      const existing = purchases.find((purchase) => normalizeEmail(purchase.email) === email);
+
+      if (!existing) {
+        purchases.push({
+          email,
+          sessionId: event.id || `session_${Date.now()}`,
+          purchasedAt: new Date().toISOString(),
+          plan: "$12/month"
+        });
+        await writeDataFile("purchases.json", purchases);
+      }
+    }
   }
 
-  const email = extractCustomerEmail(payload);
-  if (!email) {
-    return NextResponse.json({ error: "No customer email was provided in webhook payload." }, { status: 400 });
-  }
-
-  const purchase = await markPurchaseActive(email, extractOrderId(payload));
-
-  return NextResponse.json({ received: true, activatedEmail: purchase.email, eventName });
+  return NextResponse.json({ received: true });
 }

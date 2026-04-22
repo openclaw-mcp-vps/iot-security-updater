@@ -1,67 +1,75 @@
-export type RiskLevel = "critical" | "high" | "medium" | "low";
+export type PatchSeverity = "critical" | "high" | "medium" | "low";
 
-export interface DeviceRecord {
+export interface Device {
   id: string;
-  ip: string;
   hostname: string;
-  mac: string;
+  ip: string;
   manufacturer: string;
   model: string;
   firmwareVersion: string;
   lastSeenAt: string;
-  discoveredAt: string;
+  riskScore: number;
   status: "online" | "offline";
+  networkZone: string;
 }
 
-export interface PatchRecord {
+export interface Patch {
+  id: string;
+  manufacturer: string;
+  model: string;
+  targetFirmwareVersion: string;
+  severity: PatchSeverity;
+  cve: string;
+  summary: string;
+  releasedAt: string;
+  requiresReboot: boolean;
+}
+
+export interface PatchStatus {
   id: string;
   deviceId: string;
-  manufacturer: string;
-  title: string;
+  patchId: string;
+  applicable: boolean;
+  scheduled: boolean;
+  installed: boolean;
+}
+
+export interface VulnerabilityAlert {
+  id: string;
+  severity: PatchSeverity;
   cve: string;
-  severity: RiskLevel;
-  cvss: number;
-  releasedAt: string;
-  currentVersion: string;
-  targetVersion: string;
-  requiresReboot: boolean;
-  status: "available" | "scheduled" | "in_progress" | "applied" | "failed";
   summary: string;
+  impactedDevices: number;
+  patchId: string;
 }
 
-export interface MaintenanceWindow {
-  id: string;
-  name: string;
-  cron: string;
-  timezone: string;
-  maxConcurrent: number;
+export interface PatchSummary {
+  totalDevices: number;
+  vulnerableDevices: number;
+  criticalPatches: number;
+  scheduledUpdates: number;
 }
 
-export interface PatchJob {
+export interface ScheduledUpdate {
   id: string;
-  patchIds: string[];
-  deviceIds: string[];
-  maintenanceWindowId: string;
-  scheduledFor: string;
-  status: "queued" | "running" | "completed" | "failed";
+  deviceId: string;
+  patchId: string;
+  plannedFor: string;
+  status: "queued" | "pending_agent" | "in_progress" | "completed" | "failed";
+  queueJobId?: string;
   createdAt: string;
-  completedAt?: string;
-  failureReason?: string;
+  requestedBy: string;
 }
 
 export interface PurchaseRecord {
-  id: string;
   email: string;
-  source: "lemonsqueezy-webhook" | "manual";
-  createdAt: string;
-  active: boolean;
-  lastOrderId?: string;
+  sessionId: string;
+  purchasedAt: string;
+  plan: string;
 }
 
-export interface AppState {
-  devices: DeviceRecord[];
-  patches: PatchRecord[];
-  jobs: PatchJob[];
-  maintenanceWindows: MaintenanceWindow[];
-  purchases: PurchaseRecord[];
+export interface PatchSnapshot {
+  statuses: PatchStatus[];
+  alerts: VulnerabilityAlert[];
+  summary: PatchSummary;
 }

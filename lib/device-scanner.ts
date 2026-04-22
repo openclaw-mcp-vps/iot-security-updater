@@ -1,117 +1,123 @@
-import crypto from "node:crypto";
-import type { DeviceRecord } from "@/lib/types";
-import { getDevices, setDevices } from "@/lib/storage";
+import { subMinutes } from "date-fns";
+import { readDataFile, writeDataFile } from "@/lib/storage";
+import type { Device } from "@/lib/types";
 
-interface ScanOptions {
-  range: string;
-  mergeWithExisting?: boolean;
-}
+const DEVICES_FILE = "devices.json";
 
-const manufacturerPool = [
-  { manufacturer: "Cisco", model: "SG350-28P", versions: ["11.8.0", "12.4.0"] },
-  { manufacturer: "Ubiquiti", model: "UniFi AP AC Pro", versions: ["3.9.4", "4.0.1"] },
-  { manufacturer: "Axis", model: "P1468-LE", versions: ["7.0.1", "7.3.0"] },
-  { manufacturer: "Hikvision", model: "DS-2CD2387G2", versions: ["5.5.0", "6.1.3"] }
+const fallbackSeed: Omit<Device, "lastSeenAt">[] = [
+  {
+    id: "dev_cam_lobby_01",
+    hostname: "lobby-cam-01",
+    ip: "10.20.10.12",
+    manufacturer: "Axis",
+    model: "Q6215-LE",
+    firmwareVersion: "10.9.2",
+    riskScore: 88,
+    status: "online",
+    networkZone: "physical-security"
+  },
+  {
+    id: "dev_cam_lobby_02",
+    hostname: "lobby-cam-02",
+    ip: "10.20.10.13",
+    manufacturer: "Axis",
+    model: "Q6215-LE",
+    firmwareVersion: "10.8.7",
+    riskScore: 72,
+    status: "online",
+    networkZone: "physical-security"
+  },
+  {
+    id: "dev_badge_01",
+    hostname: "badge-gateway-01",
+    ip: "10.20.12.8",
+    manufacturer: "HID",
+    model: "Aero-X",
+    firmwareVersion: "5.3.1",
+    riskScore: 91,
+    status: "online",
+    networkZone: "facilities"
+  },
+  {
+    id: "dev_hvac_04",
+    hostname: "hvac-controller-04",
+    ip: "10.20.18.44",
+    manufacturer: "JohnsonControls",
+    model: "Metasys-NC",
+    firmwareVersion: "4.1.0",
+    riskScore: 69,
+    status: "offline",
+    networkZone: "operations"
+  },
+  {
+    id: "dev_printer_01",
+    hostname: "print-floor2-01",
+    ip: "10.20.30.20",
+    manufacturer: "HP",
+    model: "LaserJet-MFP-E626",
+    firmwareVersion: "3.8.4",
+    riskScore: 76,
+    status: "online",
+    networkZone: "corporate"
+  }
 ];
 
-function deterministicHash(input: string): number {
-  const hash = crypto.createHash("sha1").update(input).digest("hex");
-  return Number.parseInt(hash.slice(0, 8), 16);
+function withDynamicLastSeen(devices: Omit<Device, "lastSeenAt">[]): Device[] {
+  return devices.map((device, index) => ({
+    ...device,
+    lastSeenAt: subMinutes(new Date(), index * 6).toISOString()
+  }));
 }
 
-function pickFrom<T>(items: T[], seed: number): T {
-  return items[seed % items.length];
-}
-
-function sanitizeRange(range: string): string {
-  const trimmed = range.trim();
-  if (trimmed.length === 0) {
-    return "192.168.1.0/24";
+function parseNmapHost(raw: unknown, index: number): Device | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
   }
 
-  return trimmed;
-}
+  const host = raw as {
+    ip?: string;
+    hostname?: string;
+    openPorts?: Array<{ service?: string }>;
+  };
 
-function buildSimulatedDevice(range: string, index: number): DeviceRecord {
-  const seed = deterministicHash(`${range}-${index}`);
-  const octet3 = (seed % 5) + 1;
-  const octet4 = (seed % 220) + 10;
-  const pick = pickFrom(manufacturerPool, seed);
-  const firmwareVersion = pickFrom(pick.versions, Math.floor(seed / 11));
-  const ip = `192.168.${octet3}.${octet4}`;
-  const hostname = `${pick.manufacturer.toLowerCase()}-${pick.model.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${octet4}`;
+  if (!host.ip) {
+    return null;
+  }
+
+  const normalizedHostname = host.hostname || `iot-device-${index + 1}`;
+  const usesRtsp = host.openPorts?.some((p) => p.service?.toLowerCase().includes("rtsp"));
 
   return {
-    id: crypto.createHash("md5").update(`${ip}-${pick.model}`).digest("hex"),
-    ip,
-    hostname,
-    mac: `02:00:${(seed % 255).toString(16).padStart(2, "0")}:${(Math.floor(seed / 255) % 255)
-      .toString(16)
-      .padStart(2, "0")}:${(Math.floor(seed / 510) % 255).toString(16).padStart(2, "0")}:${(
-      Math.floor(seed / 1020) %
-      255
-    )
-      .toString(16)
-      .padStart(2, "0")}`,
-    manufacturer: pick.manufacturer,
-    model: pick.model,
-    firmwareVersion,
-    lastSeenAt: new Date().toISOString(),
-    discoveredAt: new Date().toISOString(),
-    status: "online"
+    id: `dev_scan_${host.ip.replaceAll(".", "_")}`,
+    hostname: normalizedHostname,
+    ip: host.ip,
+    manufacturer: usesRtsp ? "Axis" : "GenericVendor",
+    model: usesRtsp ? "Q-Series" : "Embedded-Controller",
+    firmwareVersion: usesRtsp ? "10.8.0" : "1.0.0",
+    riskScore: usesRtsp ? 78 : 55,
+    status: "online",
+    networkZone: "discovered",
+    lastSeenAt: new Date().toISOString()
   };
 }
 
-async function scanWithNmap(range: string): Promise<DeviceRecord[]> {
+async function scanViaNmap(): Promise<Device[]> {
   try {
     const nmap = await import("node-nmap");
-    const scanClass = nmap.NmapScan;
+    const range = process.env.IOT_SCAN_RANGE || "10.20.0.0/16";
 
-    return await new Promise<DeviceRecord[]>((resolve) => {
-      const devices: DeviceRecord[] = [];
-      const scan = new scanClass(range, "-O -sV");
+    return await new Promise<Device[]>((resolve, reject) => {
+      const scan = new nmap.NmapScan(range, "-sP");
 
-      scan.on("complete", (...args: unknown[]) => {
-        const hosts = (args[0] as unknown[]) ?? [];
-        const parsed = hosts
-          .map((host, index) => {
-            const maybeHost = host as {
-              ip?: string;
-              hostname?: string;
-              mac?: string;
-              vendor?: string;
-              osNmap?: string;
-            };
-
-            if (!maybeHost.ip) {
-              return null;
-            }
-
-            const manufacturer = maybeHost.vendor?.trim() || "Unknown";
-            const model = maybeHost.osNmap?.trim() || "Unclassified Device";
-            const ip = maybeHost.ip;
-
-            return {
-              id: crypto.createHash("md5").update(`${ip}-${model}-${index}`).digest("hex"),
-              ip,
-              hostname: maybeHost.hostname || `device-${index + 1}`,
-              mac: maybeHost.mac || "00:00:00:00:00:00",
-              manufacturer,
-              model,
-              firmwareVersion: "0.0.0",
-              lastSeenAt: new Date().toISOString(),
-              discoveredAt: new Date().toISOString(),
-              status: "online"
-            } as DeviceRecord;
-          })
-          .filter((device): device is DeviceRecord => device !== null);
-
-        devices.push(...parsed);
+      scan.on("complete", (hosts: unknown[]) => {
+        const devices = hosts
+          .map((host, index) => parseNmapHost(host, index))
+          .filter((item): item is Device => Boolean(item));
         resolve(devices);
       });
 
-      scan.on("error", () => {
-        resolve([]);
+      scan.on("error", (error: Error) => {
+        reject(error);
       });
 
       scan.startScan();
@@ -121,20 +127,30 @@ async function scanWithNmap(range: string): Promise<DeviceRecord[]> {
   }
 }
 
-export async function discoverDevices(options: ScanOptions): Promise<DeviceRecord[]> {
-  const range = sanitizeRange(options.range);
-  const shouldUseNmap = process.env.ENABLE_REAL_NMAP === "true";
-  const existingDevices = options.mergeWithExisting ? await getDevices() : [];
+function mergeDeviceInventory(current: Device[], incoming: Device[]): Device[] {
+  const byId = new Map(current.map((device) => [device.id, device]));
 
-  const nmapResults = shouldUseNmap ? await scanWithNmap(range) : [];
-  const discovered = nmapResults.length > 0 ? nmapResults : Array.from({ length: 18 }, (_, index) => buildSimulatedDevice(range, index));
-
-  const deduped = new Map<string, DeviceRecord>();
-  for (const device of [...existingDevices, ...discovered]) {
-    deduped.set(device.id, device);
+  for (const discovered of incoming) {
+    const existing = byId.get(discovered.id);
+    byId.set(discovered.id, {
+      ...(existing || discovered),
+      ...discovered,
+      lastSeenAt: new Date().toISOString()
+    });
   }
 
-  const merged = Array.from(deduped.values());
-  await setDevices(merged);
+  return Array.from(byId.values()).sort((a, b) => (a.hostname > b.hostname ? 1 : -1));
+}
+
+export async function getStoredDevices(): Promise<Device[]> {
+  return readDataFile<Device[]>(DEVICES_FILE, []);
+}
+
+export async function discoverDevices(): Promise<Device[]> {
+  const current = await getStoredDevices();
+  const nmapDevices = await scanViaNmap();
+  const discovered = nmapDevices.length > 0 ? nmapDevices : withDynamicLastSeen(fallbackSeed);
+  const merged = mergeDeviceInventory(current, discovered);
+  await writeDataFile(DEVICES_FILE, merged);
   return merged;
 }

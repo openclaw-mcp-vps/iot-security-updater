@@ -1,147 +1,152 @@
-import type { DeviceRecord, PatchRecord, RiskLevel } from "@/lib/types";
+import axios from "axios";
+import { subDays } from "date-fns";
+import { readDataFile, writeDataFile } from "@/lib/storage";
+import type { Device, Patch, PatchSeverity } from "@/lib/types";
 
-interface VendorPatchTemplate {
-  title: string;
-  cve: string;
-  severity: RiskLevel;
-  cvss: number;
-  targetVersion: string;
-  summary: string;
-  requiresReboot: boolean;
-}
+const PATCHES_FILE = "patches.json";
 
-const vendorPatches: Record<string, VendorPatchTemplate[]> = {
+const fallbackLibrary: Record<string, Array<Omit<Patch, "id" | "manufacturer" | "model">>> = {
   Axis: [
     {
-      title: "TLS Downgrade Prevention Patch",
-      cve: "CVE-2026-20114",
+      targetFirmwareVersion: "10.10.4",
       severity: "critical",
-      cvss: 9.3,
-      targetVersion: "7.4.2",
-      summary: "Fixes a downgrade path that could allow interception of remote camera control sessions.",
-      requiresReboot: true
-    }
-  ],
-  Hikvision: [
-    {
-      title: "Authentication Bypass Mitigation",
-      cve: "CVE-2026-18401",
-      severity: "critical",
-      cvss: 9.8,
-      targetVersion: "6.2.5",
-      summary: "Prevents crafted request chains from bypassing admin authentication on edge camera gateways.",
+      cve: "CVE-2026-1174",
+      summary: "Remote command execution through malformed ONVIF request parsing.",
+      releasedAt: subDays(new Date(), 9).toISOString(),
       requiresReboot: true
     },
     {
-      title: "SSH Key Rotation Enforcement",
-      cve: "CVE-2025-90117",
+      targetFirmwareVersion: "10.9.8",
       severity: "high",
-      cvss: 8.1,
-      targetVersion: "6.2.5",
-      summary: "Adds strict host key rotation validation and blocks weak key fallback negotiation.",
+      cve: "CVE-2026-0952",
+      summary: "Authentication bypass on camera API token refresh endpoint.",
+      releasedAt: subDays(new Date(), 24).toISOString(),
       requiresReboot: false
     }
   ],
-  Ubiquiti: [
+  HID: [
     {
-      title: "Controller Session Hardening",
-      cve: "CVE-2025-77210",
-      severity: "high",
-      cvss: 8.0,
-      targetVersion: "4.1.8",
-      summary: "Fixes stale API token replay risk in controller-managed access points.",
-      requiresReboot: false
-    }
-  ],
-  Cisco: [
-    {
-      title: "SNMP RCE Patch",
-      cve: "CVE-2026-14432",
+      targetFirmwareVersion: "5.4.0",
       severity: "critical",
-      cvss: 9.6,
-      targetVersion: "12.5.1",
-      summary: "Resolves unsafe OID parser behavior that enables remote command execution.",
-      requiresReboot: true
-    },
-    {
-      title: "DHCP Relay Memory Safety Fix",
-      cve: "CVE-2026-10109",
-      severity: "high",
-      cvss: 7.9,
-      targetVersion: "12.5.1",
-      summary: "Eliminates a heap corruption issue in malformed DHCP relay packet handling.",
+      cve: "CVE-2026-1019",
+      summary: "Badge relay controller accepts unsigned update packages.",
+      releasedAt: subDays(new Date(), 14).toISOString(),
       requiresReboot: true
     }
   ],
-  default: [
+  JohnsonControls: [
     {
-      title: "Firmware Signature Validation Update",
-      cve: "CVE-2026-14900",
+      targetFirmwareVersion: "4.2.1",
+      severity: "high",
+      cve: "CVE-2026-0760",
+      summary: "Privilege escalation in building automation BACnet integration.",
+      releasedAt: subDays(new Date(), 31).toISOString(),
+      requiresReboot: true
+    }
+  ],
+  HP: [
+    {
+      targetFirmwareVersion: "3.9.2",
       severity: "medium",
-      cvss: 6.8,
-      targetVersion: "2.0.4",
-      summary: "Improves firmware signature verification and rejects unsigned image chains.",
+      cve: "CVE-2026-0703",
+      summary: "Network print service memory disclosure under malformed SNMP queries.",
+      releasedAt: subDays(new Date(), 17).toISOString(),
       requiresReboot: false
+    }
+  ],
+  GenericVendor: [
+    {
+      targetFirmwareVersion: "1.0.7",
+      severity: "medium",
+      cve: "CVE-2026-1202",
+      summary: "Hard-coded service account credentials in default image.",
+      releasedAt: subDays(new Date(), 5).toISOString(),
+      requiresReboot: true
     }
   ]
 };
 
-function numericVersion(version: string): number[] {
-  return version
-    .split(".")
-    .map((chunk) => Number.parseInt(chunk.replace(/\D/g, ""), 10))
-    .map((part) => (Number.isFinite(part) ? part : 0));
+function severityFromText(value: string): PatchSeverity {
+  const lowered = value.toLowerCase();
+  if (lowered === "critical" || lowered === "high" || lowered === "medium" || lowered === "low") {
+    return lowered;
+  }
+  return "medium";
 }
 
-function isOutdated(current: string, target: string): boolean {
-  const currentParts = numericVersion(current);
-  const targetParts = numericVersion(target);
-  const maxLength = Math.max(currentParts.length, targetParts.length);
+function buildPatchId(device: Device, cve: string, targetVersion: string): string {
+  return `${device.manufacturer.toLowerCase()}_${device.model.toLowerCase().replace(/[^a-z0-9]+/g, "-")}_${cve.toLowerCase()}_${targetVersion}`;
+}
 
-  for (let index = 0; index < maxLength; index += 1) {
-    const currentValue = currentParts[index] ?? 0;
-    const targetValue = targetParts[index] ?? 0;
+async function pullFromVendorApi(device: Device): Promise<Patch[]> {
+  const envKey = `PATCH_FEED_${device.manufacturer.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+  const endpoint = process.env[envKey];
 
-    if (currentValue < targetValue) {
-      return true;
-    }
-
-    if (currentValue > targetValue) {
-      return false;
-    }
+  if (!endpoint) {
+    return [];
   }
 
-  return false;
+  try {
+    const response = await axios.get(endpoint, {
+      timeout: 3000,
+      params: {
+        model: device.model,
+        firmwareVersion: device.firmwareVersion
+      }
+    });
+
+    const records = Array.isArray(response.data?.patches) ? response.data.patches : [];
+
+    return records.map((item: Record<string, unknown>) => {
+      const cve = typeof item.cve === "string" ? item.cve : "CVE-UNSPECIFIED";
+      const targetVersion =
+        typeof item.targetFirmwareVersion === "string" ? item.targetFirmwareVersion : device.firmwareVersion;
+      return {
+        id: buildPatchId(device, cve, targetVersion),
+        manufacturer: device.manufacturer,
+        model: device.model,
+        targetFirmwareVersion: targetVersion,
+        severity: severityFromText(typeof item.severity === "string" ? item.severity : "medium"),
+        cve,
+        summary:
+          typeof item.summary === "string"
+            ? item.summary
+            : "Vendor patch available for security hardening and exploit mitigation.",
+        releasedAt: typeof item.releasedAt === "string" ? item.releasedAt : new Date().toISOString(),
+        requiresReboot: Boolean(item.requiresReboot)
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
-function buildPatchId(deviceId: string, cve: string): string {
-  return `${deviceId}-${cve.toLowerCase()}`;
+function buildFallbackPatches(device: Device): Patch[] {
+  const templates = fallbackLibrary[device.manufacturer] || fallbackLibrary.GenericVendor;
+
+  return templates.map((template) => ({
+    id: buildPatchId(device, template.cve, template.targetFirmwareVersion),
+    manufacturer: device.manufacturer,
+    model: device.model,
+    ...template
+  }));
 }
 
-export async function fetchManufacturerPatches(device: DeviceRecord): Promise<PatchRecord[]> {
-  const templates = vendorPatches[device.manufacturer] ?? vendorPatches.default;
-  const now = new Date().toISOString();
-
-  return templates
-    .filter((template) => isOutdated(device.firmwareVersion, template.targetVersion))
-    .map((template) => ({
-      id: buildPatchId(device.id, template.cve),
-      deviceId: device.id,
-      manufacturer: device.manufacturer,
-      title: template.title,
-      cve: template.cve,
-      severity: template.severity,
-      cvss: template.cvss,
-      releasedAt: now,
-      currentVersion: device.firmwareVersion,
-      targetVersion: template.targetVersion,
-      requiresReboot: template.requiresReboot,
-      status: "available",
-      summary: template.summary
-    }));
+export async function getStoredPatches(): Promise<Patch[]> {
+  return readDataFile<Patch[]>(PATCHES_FILE, []);
 }
 
-export async function fetchPatchesForDevices(devices: DeviceRecord[]): Promise<PatchRecord[]> {
-  const patchLists = await Promise.all(devices.map((device) => fetchManufacturerPatches(device)));
-  return patchLists.flat();
+export async function refreshPatchCatalog(devices: Device[]): Promise<Patch[]> {
+  const allPatches = (
+    await Promise.all(
+      devices.map(async (device) => {
+        const live = await pullFromVendorApi(device);
+        return live.length > 0 ? live : buildFallbackPatches(device);
+      })
+    )
+  ).flat();
+
+  const deduped = Array.from(new Map(allPatches.map((patch) => [patch.id, patch])).values());
+  await writeDataFile(PATCHES_FILE, deduped);
+  return deduped;
 }

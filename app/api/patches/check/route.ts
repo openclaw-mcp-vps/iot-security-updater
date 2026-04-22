@@ -1,19 +1,33 @@
-import { NextResponse } from "next/server";
-import { checkForPatches } from "@/lib/patch-manager";
-import { getDevices } from "@/lib/storage";
+import { NextRequest, NextResponse } from "next/server";
+import { hasValidAccess } from "@/lib/auth";
+import { discoverDevices, getStoredDevices } from "@/lib/device-scanner";
+import { refreshPatchCatalog } from "@/lib/manufacturer-apis";
+import { buildPatchSnapshot } from "@/lib/patch-tracker";
+import { listScheduledUpdates } from "@/lib/update-orchestrator";
 
-export async function POST() {
-  try {
-    const devices = await getDevices();
-    const patches = await checkForPatches(devices);
+export const runtime = "nodejs";
 
-    return NextResponse.json({ patches });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Patch check failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+export async function GET(request: NextRequest) {
+  if (!hasValidAccess(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const storedDevices = await getStoredDevices();
+  const devices = storedDevices.length > 0 ? storedDevices : await discoverDevices();
+  const patches = await refreshPatchCatalog(devices);
+  const schedules = await listScheduledUpdates();
+  const snapshot = buildPatchSnapshot(devices, patches, schedules);
+
+  return NextResponse.json({
+    devices,
+    patches,
+    statuses: snapshot.statuses,
+    alerts: snapshot.alerts,
+    summary: snapshot.summary,
+    checkedAt: new Date().toISOString()
+  });
 }
 
-export async function GET() {
-  return POST();
+export async function POST(request: NextRequest) {
+  return GET(request);
 }

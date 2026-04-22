@@ -1,2 +1,2 @@
-// Prisma is intentionally not used in this project.
-// Persistence is implemented with JSON files under /data to avoid ORM build/codegen issues.
+// Persistence for this project is intentionally handled without Prisma.
+// This file is present only to document the planned schema location.

@@ -1,9 +1,9 @@
 declare module "node-nmap" {
-  type Listener = (...args: unknown[]) => void;
-
+  export const nmapLocation: string;
   export class NmapScan {
-    constructor(host: string, flags: string);
-    on(event: "complete" | "error", listener: Listener): void;
+    constructor(range: string, flags?: string);
+    on(event: "complete", listener: (data: unknown[]) => void): void;
+    on(event: "error", listener: (error: Error) => void): void;
     startScan(): void;
   }
 }
